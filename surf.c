@@ -18,7 +18,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <webkit/webkit.h>
+#include <webkit2/webkit2.h>
 #include <glib/gstdio.h>
 #include <JavaScriptCore/JavaScript.h>
 #include <sys/file.h>
@@ -85,12 +85,10 @@ static GTlsDatabase *tlsdb;
 static int policysel = 0;
 
 static void addaccelgroup(Client *c);
-static void beforerequest(WebKitWebView *w, WebKitWebFrame *f,
-		WebKitWebResource *r, WebKitNetworkRequest *req,
-		WebKitNetworkResponse *resp, gpointer d);
+static void beforerequest(WebKitWebView *w,
+		WebKitWebResource *r, WebKitURIRequest *req,
+		gpointer d);
 static char *buildpath(const char *path);
-static gboolean buttonrelease(WebKitWebView *web, GdkEventButton *e,
-		GList *gl);
 static void cleanup(void);
 static void clipboard(Client *c, const Arg *arg);
 
@@ -98,37 +96,31 @@ static void clipboard(Client *c, const Arg *arg);
 static void cookiejar_changed(SoupCookieJar *self, SoupCookie *old_cookie,
 		SoupCookie *new_cookie);
 static void cookiejar_finalize(GObject *self);
-static SoupCookieJarAcceptPolicy cookiepolicy_get(void);
+static WebKitCookieAcceptPolicy cookiepolicy_get(void);
 static SoupCookieJar *cookiejar_new(const char *filename, gboolean read_only,
 		SoupCookieJarAcceptPolicy policy);
 static void cookiejar_set_property(GObject *self, guint prop_id,
 		const GValue *value, GParamSpec *pspec);
-static char cookiepolicy_set(const SoupCookieJarAcceptPolicy p);
+static char cookiepolicy_set(const WebKitCookieAcceptPolicy p);
 
 static char *copystr(char **str, const char *src);
-static WebKitWebView *createwindow(WebKitWebView *v, WebKitWebFrame *f,
+static WebKitWebView *createwindow(WebKitWebView *v, WebKitNavigationAction *a,
 		Client *c);
-static gboolean decidedownload(WebKitWebView *v, WebKitWebFrame *f,
-		WebKitNetworkRequest *r, gchar *m,  WebKitWebPolicyDecision *p,
+static gboolean decidepolicy (WebKitWebView *v, WebKitPolicyDecision *d,
+		WebKitPolicyDecisionType t, Client *c);
+static gboolean permisssionrequested(WebKitWebView *v, WebKitPermissionRequest *r,
 		Client *c);
-static gboolean decidewindow(WebKitWebView *v, WebKitWebFrame *f,
-		WebKitNetworkRequest *r, WebKitWebNavigationAction *n,
-		WebKitWebPolicyDecision *p, Client *c);
-static gboolean deletion_interface(WebKitWebView *view,
-		WebKitDOMHTMLElement *arg1, Client *c);
 static void destroyclient(Client *c);
 static void destroywin(GtkWidget* w, Client *c);
 static void die(const char *errstr, ...);
 static void eval(Client *c, const Arg *arg);
 static void find(Client *c, const Arg *arg);
 static void fullscreen(Client *c, const Arg *arg);
-static void geopolicyrequested(WebKitWebView *v, WebKitWebFrame *f,
-		WebKitGeolocationPolicyDecision *d, Client *c);
 static const char *getatom(Client *c, int a);
 static void gettogglestat(Client *c);
 static void getpagestat(Client *c);
 static char *geturi(Client *c);
-static gboolean initdownload(WebKitWebView *v, WebKitDownload *o, Client *c);
+static gboolean initdownload(WebKitURIRequest *r, Client *c);
 
 static void inspector(Client *c, const Arg *arg);
 static WebKitWebView *inspector_new(WebKitWebInspector *i, WebKitWebView *v,
@@ -142,7 +134,7 @@ static gboolean keypress(GtkAccelGroup *group,
 		Client *c);
 static void linkhover(WebKitWebView *v, const char* t, const char* l,
 		Client *c);
-static void loadstatuschange(WebKitWebView *view, GParamSpec *pspec,
+static void loadstatuschange(WebKitWebView *view, WebKitLoadEvent e,
 		Client *c);
 static void loaduri(Client *c, const Arg *arg);
 static void navigate(Client *c, const Arg *arg);
@@ -175,8 +167,6 @@ static void togglestyle(Client *c, const Arg *arg);
 static void updatetitle(Client *c);
 static void updatewinid(Client *c);
 static void usage(void);
-static void windowobjectcleared(GtkWidget *w, WebKitWebFrame *frame,
-		JSContextRef js, JSObjectRef win, Client *c);
 static void zoom(Client *c, const Arg *arg);
 
 /* configuration, allows nested code to access above variables */
@@ -197,13 +187,13 @@ addaccelgroup(Client *c) {
 }
 
 static void
-beforerequest(WebKitWebView *w, WebKitWebFrame *f, WebKitWebResource *r,
-		WebKitNetworkRequest *req, WebKitNetworkResponse *resp,
+beforerequest(WebKitWebView *w, WebKitWebResource *r,
+		WebKitURIRequest *req,
 		gpointer d) {
-	const gchar *uri = webkit_network_request_get_uri(req);
+	const gchar *uri = webkit_uri_request_get_uri(req);
 
 	if(g_str_has_suffix(uri, "/favicon.ico"))
-		webkit_network_request_set_uri(req, "about:blank");
+		webkit_uri_request_set_uri(req, "about:blank");
 }
 
 static char *
@@ -238,25 +228,6 @@ buildpath(const char *path) {
 	}
 
 	return apath;
-}
-
-static gboolean
-buttonrelease(WebKitWebView *web, GdkEventButton *e, GList *gl) {
-	WebKitHitTestResultContext context;
-	WebKitHitTestResult *result = webkit_web_view_get_hit_test_result(web,
-			e);
-	Arg arg;
-
-	g_object_get(result, "context", &context, NULL);
-	if(context & WEBKIT_HIT_TEST_RESULT_CONTEXT_LINK) {
-		if(e->button == 2 ||
-				(e->button == 1 && CLEANMASK(e->state) == CLEANMASK(MODKEY))) {
-			g_object_get(result, "link-uri", &arg.v, NULL);
-			newwindow(NULL, &arg, e->state & GDK_CONTROL_MASK);
-			return true;
-		}
-	}
-	return false;
 }
 
 static void
@@ -306,9 +277,9 @@ static SoupCookieJar *
 cookiejar_new(const char *filename, gboolean read_only,
 		SoupCookieJarAcceptPolicy policy) {
 	return g_object_new(COOKIEJAR_TYPE,
-	                    SOUP_COOKIE_JAR_TEXT_FILENAME, filename,
-	                    SOUP_COOKIE_JAR_READ_ONLY, read_only,
-			    SOUP_COOKIE_JAR_ACCEPT_POLICY, policy, NULL);
+						SOUP_COOKIE_JAR_TEXT_FILENAME, filename,
+						SOUP_COOKIE_JAR_READ_ONLY, read_only,
+				SOUP_COOKIE_JAR_ACCEPT_POLICY, policy, NULL);
 }
 
 static void
@@ -320,29 +291,29 @@ cookiejar_set_property(GObject *self, guint prop_id, const GValue *value,
 	flock(COOKIEJAR(self)->lock, LOCK_UN);
 }
 
-static SoupCookieJarAcceptPolicy
+static WebKitCookieAcceptPolicy
 cookiepolicy_get(void) {
 	switch(cookiepolicies[policysel]) {
 	case 'a':
-		return SOUP_COOKIE_JAR_ACCEPT_NEVER;
+		return WEBKIT_COOKIE_POLICY_ACCEPT_NEVER;
 	case '@':
-		return SOUP_COOKIE_JAR_ACCEPT_NO_THIRD_PARTY;
+		return WEBKIT_COOKIE_POLICY_ACCEPT_NO_THIRD_PARTY;
 	case 'A':
 	default:
 		break;
 	}
 
-	return SOUP_COOKIE_JAR_ACCEPT_ALWAYS;
+	return WEBKIT_COOKIE_POLICY_ACCEPT_ALWAYS;
 }
 
 static char
-cookiepolicy_set(const SoupCookieJarAcceptPolicy ep) {
+cookiepolicy_set(const WebKitCookieAcceptPolicy ep) {
 	switch(ep) {
-	case SOUP_COOKIE_JAR_ACCEPT_NEVER:
+	case WEBKIT_COOKIE_POLICY_ACCEPT_NEVER:
 		return 'a';
-	case SOUP_COOKIE_JAR_ACCEPT_NO_THIRD_PARTY:
+	case WEBKIT_COOKIE_POLICY_ACCEPT_NO_THIRD_PARTY:
 		return '@';
-	case SOUP_COOKIE_JAR_ACCEPT_ALWAYS:
+	case WEBKIT_COOKIE_POLICY_ACCEPT_ALWAYS:
 	default:
 		break;
 	}
@@ -351,7 +322,7 @@ cookiepolicy_set(const SoupCookieJarAcceptPolicy ep) {
 }
 
 static void
-evalscript(JSContextRef js, char *script, char* scriptname) {
+evalscript(JSGlobalContextRef js, char *script, char* scriptname) {
 	JSStringRef jsscript, jsscriptname;
 	JSValueRef exception = NULL;
 
@@ -364,12 +335,12 @@ evalscript(JSContextRef js, char *script, char* scriptname) {
 }
 
 static void
-runscript(WebKitWebFrame *frame) {
+runscript(WebKitWebView  *v) {
 	char *script;
 	GError *error;
 
 	if(g_file_get_contents(scriptfile, &script, NULL, &error)) {
-		evalscript(webkit_web_frame_get_global_context(frame),
+		evalscript(webkit_web_view_get_javascript_global_context(v),
 				script, scriptfile);
 	}
 }
@@ -402,41 +373,63 @@ copystr(char **str, const char *src) {
 }
 
 static WebKitWebView *
-createwindow(WebKitWebView  *v, WebKitWebFrame *f, Client *c) {
+createwindow(WebKitWebView  *v, WebKitNavigationAction *a, Client *c) {
 	Client *n = newclient();
 	return n->view;
 }
 
 static gboolean
-decidedownload(WebKitWebView *v, WebKitWebFrame *f, WebKitNetworkRequest *r,
-		gchar *m,  WebKitWebPolicyDecision *p, Client *c) {
-	if(!webkit_web_view_can_show_mime_type(v, m)) {
-		webkit_web_policy_decision_download(p);
-		return TRUE;
-	}
-	return FALSE;
-}
-
-static gboolean
-decidewindow(WebKitWebView *view, WebKitWebFrame *f, WebKitNetworkRequest *r,
-		WebKitWebNavigationAction *n, WebKitWebPolicyDecision *p,
-		Client *c) {
+decidepolicy (WebKitWebView *v, WebKitPolicyDecision *d,
+		WebKitPolicyDecisionType t, Client *c)
+{
+	WebKitNavigationAction *a;
+	WebKitURIRequest *r;
 	Arg arg;
 
-	if(webkit_web_navigation_action_get_reason(n) ==
-			WEBKIT_WEB_NAVIGATION_REASON_LINK_CLICKED) {
-		webkit_web_policy_decision_ignore(p);
-		arg.v = (void *)webkit_network_request_get_uri(r);
-		newwindow(NULL, &arg, 0);
-		return TRUE;
-	}
-	return FALSE;
-}
+	switch (t) {
+	case WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION: ;
+		a =	webkit_navigation_policy_decision_get_navigation_action(WEBKIT_NAVIGATION_POLICY_DECISION(d));
+		r = webkit_navigation_action_get_request (a);
 
-static gboolean
-deletion_interface(WebKitWebView *view,
-		WebKitDOMHTMLElement *arg1, Client *c) {
-	return FALSE;
+		if(webkit_navigation_action_get_navigation_type(a) ==
+				WEBKIT_NAVIGATION_TYPE_LINK_CLICKED) {
+			if(webkit_navigation_action_get_mouse_button(a) == 2 ||
+					(webkit_navigation_action_get_mouse_button(a) == 1 && CLEANMASK(webkit_navigation_action_get_modifiers (a)) == CLEANMASK(MODKEY))) {
+				webkit_policy_decision_ignore(d);
+				arg.v = (void*)webkit_uri_request_get_uri(r);
+				newwindow(NULL, &arg, webkit_navigation_action_get_modifiers(a) & GDK_CONTROL_MASK);
+				return TRUE;
+			}
+		}
+		return FALSE;
+
+	case WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION: ;
+		a =	webkit_navigation_policy_decision_get_navigation_action(WEBKIT_NAVIGATION_POLICY_DECISION(d));
+		r = webkit_navigation_action_get_request (a);
+
+		if(webkit_navigation_action_get_navigation_type(a) ==
+				WEBKIT_NAVIGATION_TYPE_LINK_CLICKED) {
+			webkit_policy_decision_ignore(d);
+			arg.v = (void *)webkit_uri_request_get_uri(r);
+			newwindow(NULL, &arg, 0);
+			return TRUE;
+		}
+		return FALSE;
+
+	case WEBKIT_POLICY_DECISION_TYPE_RESPONSE: ;
+		r = webkit_response_policy_decision_get_request(WEBKIT_RESPONSE_POLICY_DECISION(d));
+
+		if(!webkit_response_policy_decision_is_mime_type_supported(WEBKIT_RESPONSE_POLICY_DECISION (d))) {
+			webkit_policy_decision_ignore(d);
+			initdownload(r, c);
+			return TRUE;
+		}
+		return FALSE;
+
+	default:
+		return FALSE;
+	}
+	
 }
 
 static void
@@ -478,10 +471,15 @@ die(const char *errstr, ...) {
 static void
 find(Client *c, const Arg *arg) {
 	const char *s;
+	WebKitFindController *f;
 
+	f = webkit_web_view_get_find_controller(c->view);
 	s = getatom(c, AtomFind);
 	gboolean forward = *(gboolean *)arg;
-	webkit_web_view_search_text(c->view, s, FALSE, forward, TRUE);
+	webkit_find_controller_search (f, s,
+		WEBKIT_FIND_OPTIONS_CASE_INSENSITIVE | WEBKIT_FIND_OPTIONS_WRAP_AROUND |
+		forward ? WEBKIT_FIND_OPTIONS_NONE : WEBKIT_FIND_OPTIONS_BACKWARDS,
+		G_MAXUINT);
 }
 
 static void
@@ -494,14 +492,19 @@ fullscreen(Client *c, const Arg *arg) {
 	c->fullscreen = !c->fullscreen;
 }
 
-static void
-geopolicyrequested(WebKitWebView *v, WebKitWebFrame *f,
-		WebKitGeolocationPolicyDecision *d, Client *c) {
-	if(allowgeolocation) {
-		webkit_geolocation_policy_allow(d);
-	} else {
-		webkit_geolocation_policy_deny(d);
+static gboolean
+permisssionrequested(WebKitWebView *v, WebKitPermissionRequest *r,
+		Client *c) {
+	if (!WEBKIT_IS_GEOLOCATION_PERMISSION_REQUEST(r)) {
+		return FALSE;
 	}
+
+	if(allowgeolocation) {
+		webkit_permission_request_allow(r);
+	} else {
+		webkit_permission_request_deny(r);
+	}
+	return TRUE;
 }
 
 static const char *
@@ -535,11 +538,11 @@ geturi(Client *c) {
 }
 
 static gboolean
-initdownload(WebKitWebView *view, WebKitDownload *o, Client *c) {
+initdownload(WebKitURIRequest *r, Client *c) {
 	Arg arg;
 
 	updatewinid(c);
-	arg = (Arg)DOWNLOAD((char *)webkit_download_get_uri(o), geturi(c));
+	arg = (Arg)DOWNLOAD((char *)webkit_uri_request_get_uri(r), geturi(c));
 	spawn(c, &arg);
 	return FALSE;
 }
@@ -560,7 +563,7 @@ inspector_new(WebKitWebInspector *i, WebKitWebView *v, Client *c) {
 
 static gboolean
 inspector_show(WebKitWebInspector *i, Client *c) {
-	WebKitWebView *w;
+	WebKitWebViewBase *w;
 
 	if(c->isinspecting)
 		return false;
@@ -626,29 +629,22 @@ linkhover(WebKitWebView *v, const char* t, const char* l, Client *c) {
 }
 
 static void
-loadstatuschange(WebKitWebView *view, GParamSpec *pspec, Client *c) {
-	WebKitWebFrame *frame;
-	WebKitWebDataSource *src;
-	WebKitNetworkRequest *request;
-	SoupMessage *msg;
+loadstatuschange(WebKitWebView *v, WebKitLoadEvent e, Client *c) {
+	GTlsCertificateFlags errors;
 	char *uri;
 
-	switch(webkit_web_view_get_load_status (c->view)) {
+	switch(e) {
 	case WEBKIT_LOAD_COMMITTED:
 		uri = geturi(c);
-		if(strstr(uri, "https://") == uri) {
-			frame = webkit_web_view_get_main_frame(c->view);
-			src = webkit_web_frame_get_data_source(frame);
-			request = webkit_web_data_source_get_request(src);
-			msg = webkit_network_request_get_message(request);
-			c->sslfailed = !(soup_message_get_flags(msg)
-			                & SOUP_MESSAGE_CERTIFICATE_TRUSTED);
+		if(webkit_web_view_get_tls_info(v, NULL, &errors)) {
+			c->sslfailed = errors ? TRUE : FALSE;
 		}
 		setatom(c, AtomUri, uri);
 		break;
 	case WEBKIT_LOAD_FINISHED:
 		c->progress = 100;
 		updatetitle(c);
+		runscript(v);
 		break;
 	default:
 		break;
@@ -691,15 +687,16 @@ loaduri(Client *c, const Arg *arg) {
 
 static void
 navigate(Client *c, const Arg *arg) {
+	WebKitBackForwardList *l = webkit_web_view_get_back_forward_list(c->view);
 	int steps = *(int *)arg;
-	webkit_web_view_go_back_or_forward(c->view, steps);
+	WebKitBackForwardListItem *i = webkit_back_forward_list_get_nth_item(l, steps);
+	webkit_web_view_go_to_back_forward_list_item(c->view, i);
 }
 
 static Client *
 newclient(void) {
 	Client *c;
-	WebKitWebSettings *settings;
-	WebKitWebFrame *frame;
+	WebKitSettings *settings;
 	GdkGeometry hints = { 1, 1 };
 	GdkScreen *screen;
 	GdkWindow *window;
@@ -761,48 +758,29 @@ newclient(void) {
 			"hovering-over-link",
 			G_CALLBACK(linkhover), c);
 	g_signal_connect(G_OBJECT(c->view),
-			"geolocation-policy-decision-requested",
-			G_CALLBACK(geopolicyrequested), c);
+			"permission-request", /* new */
+			G_CALLBACK(permisssionrequested), c);
 	g_signal_connect(G_OBJECT(c->view),
-			"create-web-view",
+			"create", /* new */
 			G_CALLBACK(createwindow), c);
 	g_signal_connect(G_OBJECT(c->view),
-			"new-window-policy-decision-requested",
-			G_CALLBACK(decidewindow), c);
+			"decide-policy", /* new */
+			G_CALLBACK(decidepolicy), c);
 	g_signal_connect(G_OBJECT(c->view),
-			"mime-type-policy-decision-requested",
-			G_CALLBACK(decidedownload), c);
-	g_signal_connect(G_OBJECT(c->view),
-			"window-object-cleared",
-			G_CALLBACK(windowobjectcleared), c);
-	g_signal_connect(G_OBJECT(c->view),
-			"notify::load-status",
+			"load-changed", /* new */
 			G_CALLBACK(loadstatuschange), c);
 	g_signal_connect(G_OBJECT(c->view),
-			"notify::progress",
+			"notify::estimated-load-progress", /* new */
 			G_CALLBACK(progresschange), c);
-	g_signal_connect(G_OBJECT(c->view),
-			"download-requested",
-			G_CALLBACK(initdownload), c);
-	g_signal_connect(G_OBJECT(c->view),
-			"button-release-event",
-			G_CALLBACK(buttonrelease), c);
 	g_signal_connect(G_OBJECT(c->view),
 			"context-menu",
 			G_CALLBACK(contextmenu), c);
 	g_signal_connect(G_OBJECT(c->view),
-			"resource-request-starting",
+			"resource-load-started", /* new */
 			G_CALLBACK(beforerequest), c);
-	g_signal_connect(G_OBJECT(c->view),
-			"should-show-delete-interface-for-element",
-			G_CALLBACK(deletion_interface), c);
 
 	/* Scrolled Window */
 	c->scroll = gtk_scrolled_window_new(NULL, NULL);
-
-	frame = webkit_web_view_get_main_frame(WEBKIT_WEB_VIEW(c->view));
-	g_signal_connect(G_OBJECT(frame), "scrollbars-policy-changed",
-			G_CALLBACK(gtk_true), NULL);
 
 	if(!enablescrollbars) {
 		gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(c->scroll),
@@ -830,9 +808,8 @@ newclient(void) {
 			GDK_HINT_MIN_SIZE);
 	gdk_window_set_events(window, GDK_ALL_EVENTS_MASK);
 	gdk_window_add_filter(window, processx, c);
-	webkit_web_view_set_full_content_zoom(c->view, TRUE);
 
-	runscript(frame);
+	runscript(c->view);
 
 	settings = webkit_web_view_get_settings(c->view);
 	if(!(ua = getenv("SURF_USERAGENT")))
@@ -856,6 +833,8 @@ newclient(void) {
 			defaultfontsize, NULL);
 	g_object_set(G_OBJECT(settings), "resizable-text-areas",
 			1, NULL);
+	g_object_set(G_OBJECT(settings), "zoom-text-only",
+			0, NULL);
 
 	/*
 	 * While stupid, CSS specifies that a pixel represents 1/96 of an inch.
@@ -898,8 +877,6 @@ newclient(void) {
 
 	setatom(c, AtomFind, "");
 	setatom(c, AtomUri, "about:blank");
-	if(hidebackground)
-		webkit_web_view_set_transparent(c->view, TRUE);
 
 	c->next = clients;
 	clients = c;
@@ -909,9 +886,9 @@ newclient(void) {
 		printf("%u\n",
 			(guint)GDK_WINDOW_XID(window));
 		fflush(NULL);
-                if (fclose(stdout) != 0) {
+				if (fclose(stdout) != 0) {
 			die("Error closing stdout");
-                }
+				}
 	}
 
 	return c;
@@ -1011,7 +988,8 @@ pasteuri(GtkClipboard *clipboard, const char *text, gpointer d) {
 
 static void
 print(Client *c, const Arg *arg) {
-	webkit_web_frame_print(webkit_web_view_get_main_frame(c->view));
+	WebKitPrintOperation *p = webkit_print_operation_new(c->view);
+	webkit_print_operation_run_dialog(p, GTK_WINDOW(c->win));
 }
 
 static GdkFilterReturn
@@ -1040,8 +1018,8 @@ processx(GdkXEvent *e, GdkEvent *event, gpointer d) {
 }
 
 static void
-progresschange(WebKitWebView *view, GParamSpec *pspec, Client *c) {
-	c->progress = webkit_web_view_get_progress(c->view) * 100;
+progresschange(WebKitWebView *v, GParamSpec *pspec, Client *c) {
+	c->progress = webkit_web_view_get_estimated_load_progress(v) * 100;
 	updatetitle(c);
 }
 
@@ -1100,11 +1078,8 @@ setatom(Client *c, int a, const char *v) {
 
 static void
 setup(void) {
-	char *proxy;
-	char *new_proxy;
-	SoupURI *puri;
-	SoupSession *s;
-	GError *error = NULL;
+	WebKitWebContext *c;
+	WebKitCookieManager *cm;
 
 	/* clean up any zombies immediately */
 	sigchld(0);
@@ -1123,33 +1098,20 @@ setup(void) {
 	stylefile = buildpath(stylefile);
 
 	/* request handler */
-	s = webkit_get_default_session();
+	c = webkit_web_context_get_default();
 
-	/* cookie jar */
-	soup_session_add_feature(s,
-			SOUP_SESSION_FEATURE(cookiejar_new(cookiefile, FALSE,
-					cookiepolicy_get())));
+	/* caching */
+	webkit_web_context_set_cache_model(c, WEBKIT_CACHE_MODEL_WEB_BROWSER);
 
-	/* ssl */
-	tlsdb = g_tls_file_database_new(cafile, &error);
+	/* cookies */
+	cm = webkit_web_context_get_cookie_manager(c);
+	webkit_cookie_manager_set_persistent_storage(cm,
+			cookiefile, WEBKIT_COOKIE_PERSISTENT_STORAGE_TEXT);
+	webkit_cookie_manager_set_accept_policy(cm, cookiepolicy_get());
 
-	if(error) {
-		g_warning("Error loading SSL database %s: %s", cafile, error->message);
-		g_error_free(error);
-	}
-	g_object_set(G_OBJECT(s), "tls-database", tlsdb, NULL);
-	g_object_set(G_OBJECT(s), "ssl-strict", strictssl, NULL);
-
-	/* proxy */
-	if((proxy = getenv("http_proxy")) && strcmp(proxy, "")) {
-		new_proxy = g_strrstr(proxy, "http://") ? g_strdup(proxy) :
-			g_strdup_printf("http://%s", proxy);
-		puri = soup_uri_new(new_proxy);
-		g_object_set(G_OBJECT(s), "proxy-uri", puri, NULL);
-		soup_uri_free(puri);
-		g_free(new_proxy);
-		usingproxy = 1;
-	}
+	/* ssl policy */
+	webkit_web_context_set_tls_errors_policy (c,
+			strictssl ? WEBKIT_TLS_ERRORS_POLICY_FAIL : WEBKIT_TLS_ERRORS_POLICY_IGNORE);
 }
 
 static void
@@ -1159,14 +1121,13 @@ sigchld(int unused) {
 	while(0 < waitpid(-1, NULL, WNOHANG));
 }
 
+	/* @todo */
 static void
 source(Client *c, const Arg *arg) {
-	Arg a = { .b = FALSE };
-	gboolean s;
+	// Arg a = { .b = FALSE };
 
-	s = webkit_web_view_get_view_source_mode(c->view);
-	webkit_web_view_set_view_source_mode(c->view, !s);
-	reload(c, &a);
+	webkit_web_view_load_uri(c->view, webkit_web_view_get_uri (c->view));
+	// reload(c, &a);
 }
 
 static void
@@ -1184,8 +1145,7 @@ spawn(Client *c, const Arg *arg) {
 
 static void
 eval(Client *c, const Arg *arg) {
-	WebKitWebFrame *frame = webkit_web_view_get_main_frame(c->view);
-	evalscript(webkit_web_frame_get_global_context(frame),
+	evalscript(webkit_web_view_get_javascript_global_context(c->view),
 			((char **)arg->v)[0], "");
 }
 
@@ -1205,7 +1165,7 @@ titlechange(WebKitWebView *view, GParamSpec *pspec, Client *c) {
 
 static void
 toggle(Client *c, const Arg *arg) {
-	WebKitWebSettings *settings;
+	WebKitSettings *settings;
 	char *name = (char *)arg->v;
 	gboolean value;
 	Arg a = { .b = FALSE };
@@ -1219,21 +1179,16 @@ toggle(Client *c, const Arg *arg) {
 
 static void
 togglecookiepolicy(Client *c, const Arg *arg) {
-	SoupCookieJar *jar;
-	SoupCookieJarAcceptPolicy policy;
-
-	jar = SOUP_COOKIE_JAR(
-			soup_session_get_feature(
-				webkit_get_default_session(),
-				SOUP_TYPE_COOKIE_JAR));
-	g_object_get(G_OBJECT(jar), "accept-policy", &policy, NULL);
+	WebKitWebContext *context;
+	WebKitCookieManager *cm;
 
 	policysel++;
 	if(policysel >= strlen(cookiepolicies))
 		policysel = 0;
 
-	g_object_set(G_OBJECT(jar), "accept-policy",
-			cookiepolicy_get(), NULL);
+	context = webkit_web_context_get_default();
+	cm = webkit_web_context_get_cookie_manager(context);
+	webkit_cookie_manager_set_accept_policy(cm, cookiepolicy_get());
 
 	updatetitle(c);
 	/* Do not reload. */
@@ -1288,7 +1243,7 @@ togglescrollbars(Client *c, const Arg *arg) {
 
 static void
 togglestyle(Client *c, const Arg *arg) {
-	WebKitWebSettings *settings;
+	WebKitSettings *settings;
 	char *uri;
 
 	settings = webkit_web_view_get_settings(c->view);
@@ -1304,7 +1259,7 @@ gettogglestat(Client *c){
 	gboolean value;
 	char *uri;
 	int p = 0;
-	WebKitWebSettings *settings = webkit_web_view_get_settings(c->view);
+	WebKitSettings *settings = webkit_web_view_get_settings(c->view);
 
 	togglestat[p++] = cookiepolicy_set(cookiepolicy_get());
 
@@ -1388,24 +1343,20 @@ usage(void) {
 }
 
 static void
-windowobjectcleared(GtkWidget *w, WebKitWebFrame *frame, JSContextRef js,
-		JSObjectRef win, Client *c) {
-	runscript(frame);
-}
-
-static void
 zoom(Client *c, const Arg *arg) {
 	c->zoomed = TRUE;
 	if(arg->i < 0) {
 		/* zoom out */
-		webkit_web_view_zoom_out(c->view);
+		webkit_web_view_set_zoom_level(c->view, 
+				webkit_web_view_get_zoom_level(c->view) - 0.1);
 	} else if(arg->i > 0) {
 		/* zoom in */
-		webkit_web_view_zoom_in(c->view);
+		webkit_web_view_set_zoom_level(c->view, 
+				webkit_web_view_get_zoom_level(c->view) + 0.1);
 	} else {
 		/* reset */
 		c->zoomed = FALSE;
-		webkit_web_view_set_zoom_level(c->view, 1.0);
+		webkit_web_view_set_zoom_level(c->view, zoomlevel);
 	}
 }
 
