@@ -47,11 +47,11 @@ typedef struct Client {
 	GtkWidget *win, *scroll, *vbox, *pane;
 	WebKitWebView *view;
 	WebKitWebInspector *inspector;
-	char *title, *linkhover;
-	const char *needle;
+	char *title;
+	const char *needle, *linkhover;
 	gint progress;
 	struct Client *next;
-	gboolean zoomed, fullscreen, isinspecting, sslfailed;
+	gboolean zoomed, fullscreen, isinspecting, sslfailed, userstyle;
 } Client;
 
 typedef struct {
@@ -81,7 +81,6 @@ static char winid[64];
 static gboolean usingproxy = 0;
 static char togglestat[8];
 static char pagestat[3];
-static GTlsDatabase *tlsdb;
 static int policysel = 0;
 
 static void addaccelgroup(Client *c);
@@ -123,17 +122,14 @@ static char *geturi(Client *c);
 static gboolean initdownload(WebKitURIRequest *r, Client *c);
 
 static void inspector(Client *c, const Arg *arg);
-static WebKitWebView *inspector_new(WebKitWebInspector *i, WebKitWebView *v,
-		Client *c);
 static gboolean inspector_show(WebKitWebInspector *i, Client *c);
 static gboolean inspector_close(WebKitWebInspector *i, Client *c);
-static void inspector_finished(WebKitWebInspector *i, Client *c);
 
 static gboolean keypress(GtkAccelGroup *group,
 		GObject *obj, guint key, GdkModifierType mods,
 		Client *c);
-static void linkhover(WebKitWebView *v, const char* t, const char* l,
-		Client *c);
+static void mousetargetchange(WebKitWebView *v, WebKitHitTestResult *r,
+		guint modifiers, Client *c);
 static void loadstatuschange(WebKitWebView *view, WebKitLoadEvent e,
 		Client *c);
 static void loaduri(Client *c, const Arg *arg);
@@ -155,7 +151,6 @@ static void scroll(GtkAdjustment *a, const Arg *arg);
 static void setatom(Client *c, int a, const char *v);
 static void setup(void);
 static void sigchld(int unused);
-static void source(Client *c, const Arg *arg);
 static void spawn(Client *c, const Arg *arg);
 static void stop(Client *c, const Arg *arg);
 static void titlechange(WebKitWebView *view, GParamSpec *pspec, Client *c);
@@ -335,17 +330,6 @@ evalscript(JSGlobalContextRef js, char *script, char* scriptname) {
 }
 
 static void
-runscript(WebKitWebView  *v) {
-	char *script;
-	GError *error;
-
-	if(g_file_get_contents(scriptfile, &script, NULL, &error)) {
-		evalscript(webkit_web_view_get_javascript_global_context(v),
-				script, scriptfile);
-	}
-}
-
-static void
 clipboard(Client *c, const Arg *arg) {
 	gboolean paste = *(gboolean *)arg;
 
@@ -478,7 +462,7 @@ find(Client *c, const Arg *arg) {
 	gboolean forward = *(gboolean *)arg;
 	webkit_find_controller_search (f, s,
 		WEBKIT_FIND_OPTIONS_CASE_INSENSITIVE | WEBKIT_FIND_OPTIONS_WRAP_AROUND |
-		forward ? WEBKIT_FIND_OPTIONS_NONE : WEBKIT_FIND_OPTIONS_BACKWARDS,
+		(forward ? WEBKIT_FIND_OPTIONS_NONE : WEBKIT_FIND_OPTIONS_BACKWARDS),
 		G_MAXUINT);
 }
 
@@ -556,44 +540,16 @@ inspector(Client *c, const Arg *arg) {
 	}
 }
 
-static WebKitWebView *
-inspector_new(WebKitWebInspector *i, WebKitWebView *v, Client *c) {
-	return WEBKIT_WEB_VIEW(webkit_web_view_new());
-}
-
 static gboolean
 inspector_show(WebKitWebInspector *i, Client *c) {
-	WebKitWebViewBase *w;
-
-	if(c->isinspecting)
-		return false;
-
-	w = webkit_web_inspector_get_web_view(i);
-	gtk_paned_pack2(GTK_PANED(c->pane), GTK_WIDGET(w), TRUE, TRUE);
-	gtk_widget_show(GTK_WIDGET(w));
 	c->isinspecting = true;
-
-	return true;
+	return FALSE;
 }
 
 static gboolean
 inspector_close(WebKitWebInspector *i, Client *c) {
-	GtkWidget *w;
-
-	if(!c->isinspecting)
-		return false;
-
-	w = GTK_WIDGET(webkit_web_inspector_get_web_view(i));
-	gtk_widget_hide(w);
-	gtk_widget_destroy(w);
 	c->isinspecting = false;
-
-	return true;
-}
-
-static void
-inspector_finished(WebKitWebInspector *i, Client *c) {
-	g_free(c->inspector);
+	return FALSE;
 }
 
 static gboolean
@@ -618,11 +574,11 @@ keypress(GtkAccelGroup *group, GObject *obj,
 }
 
 static void
-linkhover(WebKitWebView *v, const char* t, const char* l, Client *c) {
-	if(l) {
-		c->linkhover = copystr(&c->linkhover, l);
+mousetargetchange(WebKitWebView *v, WebKitHitTestResult *r,
+		guint modifiers, Client *c) {
+	if(webkit_hit_test_result_context_is_link(r)) {
+		c->linkhover = webkit_hit_test_result_get_link_uri(r);
 	} else if(c->linkhover) {
-		free(c->linkhover);
 		c->linkhover = NULL;
 	}
 	updatetitle(c);
@@ -644,7 +600,6 @@ loadstatuschange(WebKitWebView *v, WebKitLoadEvent e, Client *c) {
 	case WEBKIT_LOAD_FINISHED:
 		c->progress = 100;
 		updatetitle(c);
-		runscript(v);
 		break;
 	default:
 		break;
@@ -697,11 +652,13 @@ static Client *
 newclient(void) {
 	Client *c;
 	WebKitSettings *settings;
+	WebKitUserContentManager *usercontent;
 	GdkGeometry hints = { 1, 1 };
 	GdkScreen *screen;
 	GdkWindow *window;
 	gdouble dpi;
-	char *uri, *ua;
+	char *ua, *source;
+	GError *error;
 
 	if(!(c = calloc(1, sizeof(Client))))
 		die("Cannot malloc!\n");
@@ -749,14 +706,15 @@ newclient(void) {
 	gtk_paned_pack1(GTK_PANED(c->pane), c->vbox, TRUE, TRUE);
 
 	/* Webview */
-	c->view = WEBKIT_WEB_VIEW(webkit_web_view_new());
+	usercontent = webkit_user_content_manager_new();
+	c->view = WEBKIT_WEB_VIEW(webkit_web_view_new_with_user_content_manager (usercontent));
 
 	g_signal_connect(G_OBJECT(c->view),
-			"notify::title",
+			"notify::title", /* good */
 			G_CALLBACK(titlechange), c);
 	g_signal_connect(G_OBJECT(c->view),
-			"hovering-over-link",
-			G_CALLBACK(linkhover), c);
+			"mouse-target-changed", /* new */
+			G_CALLBACK(mousetargetchange), c);
 	g_signal_connect(G_OBJECT(c->view),
 			"permission-request", /* new */
 			G_CALLBACK(permisssionrequested), c);
@@ -773,7 +731,7 @@ newclient(void) {
 			"notify::estimated-load-progress", /* new */
 			G_CALLBACK(progresschange), c);
 	g_signal_connect(G_OBJECT(c->view),
-			"context-menu",
+			"context-menu", /* bad callback */
 			G_CALLBACK(contextmenu), c);
 	g_signal_connect(G_OBJECT(c->view),
 			"resource-load-started", /* new */
@@ -809,32 +767,47 @@ newclient(void) {
 	gdk_window_set_events(window, GDK_ALL_EVENTS_MASK);
 	gdk_window_add_filter(window, processx, c);
 
-	runscript(c->view);
-
 	settings = webkit_web_view_get_settings(c->view);
 	if(!(ua = getenv("SURF_USERAGENT")))
 		ua = useragent;
-	g_object_set(G_OBJECT(settings), "user-agent", ua, NULL);
-	uri = g_strconcat("file://", stylefile, NULL);
-	g_object_set(G_OBJECT(settings), "user-stylesheet-uri", uri, NULL);
+	g_object_set(G_OBJECT(settings), "user-agent", ua, NULL); /* good */
 	g_object_set(G_OBJECT(settings), "auto-load-images", loadimages,
-			NULL);
+			NULL); /* good */
 	g_object_set(G_OBJECT(settings), "enable-plugins", enableplugins,
-			NULL);
-	g_object_set(G_OBJECT(settings), "enable-scripts", enablescripts,
-			NULL);
+			NULL); /* good */
+	g_object_set(G_OBJECT(settings), "enable-javascript", enablescripts,
+			NULL); /* new */
 	g_object_set(G_OBJECT(settings), "enable-spatial-navigation",
-			enablespatialbrowsing, NULL);
+			enablespatialbrowsing, NULL); /* good */
 	g_object_set(G_OBJECT(settings), "enable-developer-extras",
-			enableinspector, NULL);
-	g_object_set(G_OBJECT(settings), "enable-default-context-menu",
-			kioskmode ^ 1, NULL);
+			enableinspector, NULL); /* good */
+	// g_object_set(G_OBJECT(settings), "enable-default-context-menu",
+			// kioskmode ^ 1, NULL); 
 	g_object_set(G_OBJECT(settings), "default-font-size",
-			defaultfontsize, NULL);
-	g_object_set(G_OBJECT(settings), "resizable-text-areas",
-			1, NULL);
+			defaultfontsize, NULL); /* good */
+	g_object_set(G_OBJECT(settings), "enable-resizable-text-areas",
+			1, NULL); /* new */
 	g_object_set(G_OBJECT(settings), "zoom-text-only",
-			0, NULL);
+			0, NULL); /* new */
+
+	/* stylefile and scriptfile */
+	if(g_file_get_contents(scriptfile, &source, NULL, &error)) {
+		webkit_user_content_manager_add_script(usercontent,
+			webkit_user_script_new(
+				source, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+				WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END,
+				NULL, NULL)
+			);
+	}
+	if(g_file_get_contents(stylefile, &source, NULL, &error)) {
+		webkit_user_content_manager_add_style_sheet(usercontent,
+			webkit_user_style_sheet_new(
+				source, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+				WEBKIT_USER_STYLE_LEVEL_USER,
+				NULL, NULL)
+			);
+	}
+	c->userstyle = true;
 
 	/*
 	 * While stupid, CSS specifies that a pixel represents 1/96 of an inch.
@@ -845,8 +818,6 @@ newclient(void) {
 		screen = gdk_window_get_screen(window);
 		dpi = gdk_screen_get_resolution(screen);
 		if(dpi != -1) {
-			g_object_set(G_OBJECT(settings), "enforce-96-dpi", true,
-					NULL);
 			webkit_web_view_set_zoom_level(c->view, dpi/96);
 		}
 	}
@@ -855,16 +826,11 @@ newclient(void) {
 		webkit_web_view_set_zoom_level(c->view, zoomlevel);
 
 	if(enableinspector) {
-		c->inspector = WEBKIT_WEB_INSPECTOR(
-				webkit_web_view_get_inspector(c->view));
-		g_signal_connect(G_OBJECT(c->inspector), "inspect-web-view",
-				G_CALLBACK(inspector_new), c);
-		g_signal_connect(G_OBJECT(c->inspector), "show-window",
+		c->inspector = webkit_web_view_get_inspector(c->view);
+		g_signal_connect(G_OBJECT(c->inspector), "attach",
 				G_CALLBACK(inspector_show), c);
-		g_signal_connect(G_OBJECT(c->inspector), "close-window",
+		g_signal_connect(G_OBJECT(c->inspector), "closed",
 				G_CALLBACK(inspector_close), c);
-		g_signal_connect(G_OBJECT(c->inspector), "finished",
-				G_CALLBACK(inspector_finished), c);
 		c->isinspecting = false;
 	}
 
@@ -872,8 +838,6 @@ newclient(void) {
 		c->fullscreen = 0;
 		fullscreen(c, NULL);
 	}
-
-	g_free(uri);
 
 	setatom(c, AtomFind, "");
 	setatom(c, AtomUri, "about:blank");
@@ -1121,15 +1085,6 @@ sigchld(int unused) {
 	while(0 < waitpid(-1, NULL, WNOHANG));
 }
 
-	/* @todo */
-static void
-source(Client *c, const Arg *arg) {
-	// Arg a = { .b = FALSE };
-
-	webkit_web_view_load_uri(c->view, webkit_web_view_get_uri (c->view));
-	// reload(c, &a);
-}
-
 static void
 spawn(Client *c, const Arg *arg) {
 	if(fork() == 0) {
@@ -1241,23 +1196,35 @@ togglescrollbars(Client *c, const Arg *arg) {
 	}
 }
 
+/* TODO polish (what about other styles? */
 static void
 togglestyle(Client *c, const Arg *arg) {
-	WebKitSettings *settings;
-	char *uri;
+	WebKitUserContentManager *usercontent;
+	char *source;
+	GError *error;
 
-	settings = webkit_web_view_get_settings(c->view);
-	g_object_get(G_OBJECT(settings), "user-stylesheet-uri", &uri, NULL);
-	uri = uri[0] ? g_strdup("") : g_strconcat("file://", stylefile, NULL);
-	g_object_set(G_OBJECT(settings), "user-stylesheet-uri", uri, NULL);
+	usercontent = webkit_web_view_get_user_content_manager(c->view);
+	if(c->userstyle) {
+		webkit_user_content_manager_remove_all_style_sheets(usercontent);
+		c->userstyle = false;
+	} else {
+		if(g_file_get_contents(stylefile, &source, NULL, &error)) {
+		webkit_user_content_manager_add_style_sheet(usercontent,
+			webkit_user_style_sheet_new(
+				source, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+				WEBKIT_USER_STYLE_LEVEL_USER,
+				NULL, NULL)
+			);
+		}
+		c->userstyle = true;
+	}
 
 	updatetitle(c);
 }
 
 static void
-gettogglestat(Client *c){
+gettogglestat(Client *c) {
 	gboolean value;
-	char *uri;
 	int p = 0;
 	WebKitSettings *settings = webkit_web_view_get_settings(c->view);
 
@@ -1272,14 +1239,13 @@ gettogglestat(Client *c){
 	g_object_get(G_OBJECT(settings), "auto-load-images", &value, NULL);
 	togglestat[p++] = value? 'I': 'i';
 
-	g_object_get(G_OBJECT(settings), "enable-scripts", &value, NULL);
+	g_object_get(G_OBJECT(settings), "enable-javascript", &value, NULL);
 	togglestat[p++] = value? 'S': 's';
 
 	g_object_get(G_OBJECT(settings), "enable-plugins", &value, NULL);
 	togglestat[p++] = value? 'V': 'v';
 
-	g_object_get(G_OBJECT(settings), "user-stylesheet-uri", &uri, NULL);
-	togglestat[p++] = uri[0] ? 'M': 'm';
+	togglestat[p++] = c->userstyle ? 'M': 'm';
 
 	togglestat[p] = '\0';
 }

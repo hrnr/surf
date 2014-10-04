@@ -7,7 +7,7 @@ static char *scriptfile     = "~/.surf/script.js";
 
 static Bool kioskmode       = FALSE; /* Ignore shortcuts */
 static Bool showindicators  = TRUE;  /* Show indicators in window title */
-static Bool zoomto96dpi     = TRUE;  /* Zoom pages to always emulate 96dpi */
+static Bool zoomto96dpi     = FALSE;  /* Zoom pages to always emulate 96dpi */
 static Bool runinfullscreen = FALSE; /* Run in fullscreen mode by default */
 
 static guint defaultfontsize = 12;   /* Default font size */
@@ -81,7 +81,6 @@ static Key keys[] = {
 
     { 0,                    GDK_KEY_F11,    fullscreen, { 0 } },
     { 0,                    GDK_KEY_Escape, stop,       { 0 } },
-    { MODKEY,               GDK_KEY_o,      source,     { 0 } },
     { MODKEY|GDK_SHIFT_MASK,GDK_KEY_o,      inspector,  { 0 } },
 
     { MODKEY,               GDK_KEY_g,      spawn,      SETPROP("_SURF_URI", "_SURF_GO") },
