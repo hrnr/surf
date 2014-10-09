@@ -879,6 +879,7 @@ static void
 print(Client *c, const Arg *arg) {
 	WebKitPrintOperation *p = webkit_print_operation_new(c->view);
 	webkit_print_operation_run_dialog(p, GTK_WINDOW(c->win));
+	g_clear_object(&p);
 }
 
 static GdkFilterReturn
