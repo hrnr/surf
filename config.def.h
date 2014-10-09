@@ -7,7 +7,7 @@ static char *scriptfile     = "~/.surf/script.js";
 
 static Bool kioskmode       = FALSE; /* Ignore shortcuts */
 static Bool showindicators  = TRUE;  /* Show indicators in window title */
-static Bool zoomto96dpi     = FALSE;  /* Zoom pages to always emulate 96dpi */
+static Bool zoomto96dpi     = TRUE;  /* Zoom pages to always emulate 96dpi */
 static Bool runinfullscreen = FALSE; /* Run in fullscreen mode by default */
 
 static guint defaultfontsize = 12;   /* Default font size */
@@ -18,7 +18,6 @@ static char *cookiefile     = "~/.surf/cookies.txt";
 static char *cookiepolicies = "Aa@"; /* A: accept all; a: accept nothing,
                                         @: accept no third party */
 static Bool *strictssl      = FALSE; /* Refuse untrusted SSL connections */
-static time_t sessiontime   = 3600;
 
 /* Webkit default features */
 static Bool enablescrollbars = TRUE;

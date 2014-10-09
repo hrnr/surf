@@ -31,8 +31,6 @@ char *argv0;
 
 #define LENGTH(x)               (sizeof x / sizeof x[0])
 #define CLEANMASK(mask)         (mask & (MODKEY|GDK_SHIFT_MASK))
-#define COOKIEJAR_TYPE          (cookiejar_get_type ())
-#define COOKIEJAR(obj)          (G_TYPE_CHECK_INSTANCE_CAST ((obj), COOKIEJAR_TYPE, CookieJar))
 
 enum { AtomFind, AtomGo, AtomUri, AtomLast };
 
@@ -47,8 +45,7 @@ typedef struct Client {
 	GtkWidget *win, *scroll, *vbox, *pane;
 	WebKitWebView *view;
 	WebKitWebInspector *inspector;
-	char *title;
-	const char *needle, *linkhover;
+	const char *title, *needle, *linkhover;
 	gint progress;
 	struct Client *next;
 	gboolean zoomed, fullscreen, isinspecting, sslfailed, userstyle;
@@ -60,17 +57,6 @@ typedef struct {
 	void (*func)(Client *c, const Arg *arg);
 	const Arg arg;
 } Key;
-
-typedef struct {
-	SoupCookieJarText parent_instance;
-	int lock;
-} CookieJar;
-
-typedef struct {
-	SoupCookieJarTextClass parent_class;
-} CookieJarClass;
-
-G_DEFINE_TYPE(CookieJar, cookiejar, SOUP_TYPE_COOKIE_JAR_TEXT)
 
 static Display *dpy;
 static Atom atoms[AtomLast];
@@ -90,18 +76,8 @@ static void beforerequest(WebKitWebView *w,
 static char *buildpath(const char *path);
 static void cleanup(void);
 static void clipboard(Client *c, const Arg *arg);
-
-/* Cookiejar implementation */
-static void cookiejar_changed(SoupCookieJar *self, SoupCookie *old_cookie,
-		SoupCookie *new_cookie);
-static void cookiejar_finalize(GObject *self);
 static WebKitCookieAcceptPolicy cookiepolicy_get(void);
-static SoupCookieJar *cookiejar_new(const char *filename, gboolean read_only,
-		SoupCookieJarAcceptPolicy policy);
-static void cookiejar_set_property(GObject *self, guint prop_id,
-		const GValue *value, GParamSpec *pspec);
 static char cookiepolicy_set(const WebKitCookieAcceptPolicy p);
-
 static char *copystr(char **str, const char *src);
 static WebKitWebView *createwindow(WebKitWebView *v, WebKitNavigationAction *a,
 		Client *c);
@@ -137,9 +113,9 @@ static void navigate(Client *c, const Arg *arg);
 static Client *newclient(void);
 static void newwindow(Client *c, const Arg *arg, gboolean noembed);
 static void pasteuri(GtkClipboard *clipboard, const char *text, gpointer d);
-static gboolean contextmenu(WebKitWebView *view, GtkWidget *menu,
-		WebKitHitTestResult *target, gboolean keyboard, Client *c);
-static void menuactivate(GtkMenuItem *item, Client *c);
+static gboolean contextmenu(WebKitWebView *v, WebKitContextMenu *menu,
+		GdkEvent *e, WebKitHitTestResult *r, Client *c);
+static void menuactivate(GtkAction *gaction, Client *c);
 static void print(Client *c, const Arg *arg);
 static GdkFilterReturn processx(GdkXEvent *xevent, GdkEvent *event,
 		gpointer d);
@@ -232,58 +208,6 @@ cleanup(void) {
 	g_free(cookiefile);
 	g_free(scriptfile);
 	g_free(stylefile);
-}
-
-static void
-cookiejar_changed(SoupCookieJar *self, SoupCookie *old_cookie,
-		SoupCookie *new_cookie) {
-	flock(COOKIEJAR(self)->lock, LOCK_EX);
-	if(new_cookie && !new_cookie->expires && sessiontime) {
-		soup_cookie_set_expires(new_cookie,
-				soup_date_new_from_now(sessiontime));
-	}
-	SOUP_COOKIE_JAR_CLASS(cookiejar_parent_class)->changed(self,
-			old_cookie, new_cookie);
-	flock(COOKIEJAR(self)->lock, LOCK_UN);
-}
-
-static void
-cookiejar_class_init(CookieJarClass *klass) {
-	SOUP_COOKIE_JAR_CLASS(klass)->changed = cookiejar_changed;
-	G_OBJECT_CLASS(klass)->get_property =
-		G_OBJECT_CLASS(cookiejar_parent_class)->get_property;
-	G_OBJECT_CLASS(klass)->set_property = cookiejar_set_property;
-	G_OBJECT_CLASS(klass)->finalize = cookiejar_finalize;
-	g_object_class_override_property(G_OBJECT_CLASS(klass), 1, "filename");
-}
-
-static void
-cookiejar_finalize(GObject *self) {
-	close(COOKIEJAR(self)->lock);
-	G_OBJECT_CLASS(cookiejar_parent_class)->finalize(self);
-}
-
-static void
-cookiejar_init(CookieJar *self) {
-	self->lock = open(cookiefile, 0);
-}
-
-static SoupCookieJar *
-cookiejar_new(const char *filename, gboolean read_only,
-		SoupCookieJarAcceptPolicy policy) {
-	return g_object_new(COOKIEJAR_TYPE,
-						SOUP_COOKIE_JAR_TEXT_FILENAME, filename,
-						SOUP_COOKIE_JAR_READ_ONLY, read_only,
-				SOUP_COOKIE_JAR_ACCEPT_POLICY, policy, NULL);
-}
-
-static void
-cookiejar_set_property(GObject *self, guint prop_id, const GValue *value,
-		GParamSpec *pspec) {
-	flock(COOKIEJAR(self)->lock, LOCK_SH);
-	G_OBJECT_CLASS(cookiejar_parent_class)->set_property(self, prop_id,
-			value, pspec);
-	flock(COOKIEJAR(self)->lock, LOCK_UN);
 }
 
 static WebKitCookieAcceptPolicy
@@ -634,7 +558,7 @@ loaduri(Client *c, const Arg *arg) {
 	} else {
 		webkit_web_view_load_uri(c->view, u);
 		c->progress = 0;
-		c->title = copystr(&c->title, u);
+		c->title = geturi(c);
 		updatetitle(c);
 	}
 	g_free(u);
@@ -653,12 +577,13 @@ newclient(void) {
 	Client *c;
 	WebKitSettings *settings;
 	WebKitUserContentManager *usercontent;
+	WebKitUserScript *script;
+	WebKitUserStyleSheet *style;
 	GdkGeometry hints = { 1, 1 };
 	GdkScreen *screen;
 	GdkWindow *window;
 	gdouble dpi;
 	char *ua, *source;
-	GError *error;
 
 	if(!(c = calloc(1, sizeof(Client))))
 		die("Cannot malloc!\n");
@@ -707,7 +632,8 @@ newclient(void) {
 
 	/* Webview */
 	usercontent = webkit_user_content_manager_new();
-	c->view = WEBKIT_WEB_VIEW(webkit_web_view_new_with_user_content_manager (usercontent));
+	c->view = WEBKIT_WEB_VIEW(webkit_web_view_new_with_user_content_manager(usercontent));
+	g_clear_object(&usercontent);
 
 	g_signal_connect(G_OBJECT(c->view),
 			"notify::title", /* good */
@@ -731,7 +657,7 @@ newclient(void) {
 			"notify::estimated-load-progress", /* new */
 			G_CALLBACK(progresschange), c);
 	g_signal_connect(G_OBJECT(c->view),
-			"context-menu", /* bad callback */
+			"context-menu", /* new */
 			G_CALLBACK(contextmenu), c);
 	g_signal_connect(G_OBJECT(c->view),
 			"resource-load-started", /* new */
@@ -756,12 +682,12 @@ newclient(void) {
 	/* Setup */
 	gtk_box_set_child_packing(GTK_BOX(c->vbox), c->scroll, TRUE,
 			TRUE, 0, GTK_PACK_START);
-	gtk_widget_grab_focus(GTK_WIDGET(c->view));
 	gtk_widget_show(c->pane);
 	gtk_widget_show(c->vbox);
 	gtk_widget_show(c->scroll);
 	gtk_widget_show(GTK_WIDGET(c->view));
 	gtk_widget_show(c->win);
+	gtk_widget_grab_focus(GTK_WIDGET(c->view));
 	gtk_window_set_geometry_hints(GTK_WINDOW(c->win), NULL, &hints,
 			GDK_HINT_MIN_SIZE);
 	gdk_window_set_events(window, GDK_ALL_EVENTS_MASK);
@@ -782,7 +708,7 @@ newclient(void) {
 	g_object_set(G_OBJECT(settings), "enable-developer-extras",
 			enableinspector, NULL); /* good */
 	// g_object_set(G_OBJECT(settings), "enable-default-context-menu",
-			// kioskmode ^ 1, NULL); 
+			// kioskmode ^ 1, NULL); TODO
 	g_object_set(G_OBJECT(settings), "default-font-size",
 			defaultfontsize, NULL); /* good */
 	g_object_set(G_OBJECT(settings), "enable-resizable-text-areas",
@@ -791,21 +717,24 @@ newclient(void) {
 			0, NULL); /* new */
 
 	/* stylefile and scriptfile */
-	if(g_file_get_contents(scriptfile, &source, NULL, &error)) {
-		webkit_user_content_manager_add_script(usercontent,
-			webkit_user_script_new(
+	usercontent = webkit_web_view_get_user_content_manager(c->view);
+	if(g_file_get_contents(scriptfile, &source, NULL, NULL)) {
+		script = webkit_user_script_new(
 				source, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
 				WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END,
-				NULL, NULL)
-			);
+				NULL, NULL);
+		webkit_user_content_manager_add_script(usercontent, script);
+		g_free(source);
+		webkit_user_script_unref(script);
 	}
-	if(g_file_get_contents(stylefile, &source, NULL, &error)) {
-		webkit_user_content_manager_add_style_sheet(usercontent,
-			webkit_user_style_sheet_new(
+	if(g_file_get_contents(stylefile, &source, NULL, NULL)) {
+		style = webkit_user_style_sheet_new(
 				source, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
 				WEBKIT_USER_STYLE_LEVEL_USER,
-				NULL, NULL)
-			);
+				NULL, NULL);
+		webkit_user_content_manager_add_style_sheet(usercontent, style);
+		g_free(source);
+		webkit_user_style_sheet_unref(style);
 	}
 	c->userstyle = true;
 
@@ -896,20 +825,23 @@ newwindow(Client *c, const Arg *arg, gboolean noembed) {
 }
 
 static gboolean
-contextmenu(WebKitWebView *view, GtkWidget *menu, WebKitHitTestResult *target,
-		gboolean keyboard, Client *c) {
-	GList *items = gtk_container_get_children(GTK_CONTAINER(GTK_MENU(menu)));
+contextmenu(WebKitWebView *v, WebKitContextMenu *menu,
+		GdkEvent *e, WebKitHitTestResult *r, Client *c) {
+	GList *items = webkit_context_menu_get_items(menu);
 
 	for(GList *l = items; l; l = l->next) {
-		g_signal_connect(l->data, "activate", G_CALLBACK(menuactivate), c);
+		if (!webkit_context_menu_item_is_separator(l->data))
+			g_signal_connect(webkit_context_menu_item_get_action(l->data),
+				"activate", G_CALLBACK(menuactivate), c);
 	}
+	if (webkit_hit_test_result_context_is_image(r))
+		c->needle = webkit_hit_test_result_get_image_uri(r);
 
-	g_list_free(items);
 	return FALSE;
 }
 
 static void
-menuactivate(GtkMenuItem *item, Client *c) {
+menuactivate(GtkAction *gaction, Client *c) {
 	/*
 	 * context-menu-action-2000	open link
 	 * context-menu-action-1	open link in window
@@ -922,25 +854,18 @@ menuactivate(GtkMenuItem *item, Client *c) {
 	 * context-menu-action-12	stop
 	 */
 
-	GtkAction *a = NULL;
 	const char *name, *uri;
-	GtkClipboard *prisel, *clpbrd;
 
-	a = gtk_activatable_get_related_action(GTK_ACTIVATABLE(item));
-	if(a == NULL)
-		return;
+	name = gtk_action_get_name(gaction);
+	uri = NULL;
+	if(!g_strcmp0(name, "context-menu-action-3"))
+		uri = c->linkhover;
+	else if(!g_strcmp0(name, "context-menu-action-7"))
+		uri = c->needle;
 
-	name = gtk_action_get_name(a);
-	if(!g_strcmp0(name, "context-menu-action-3")) {
-		prisel = gtk_clipboard_get(GDK_SELECTION_PRIMARY);
-		gtk_clipboard_set_text(prisel, c->linkhover, -1);
-	} else if(!g_strcmp0(name, "context-menu-action-7")) {
-		prisel = gtk_clipboard_get(GDK_SELECTION_PRIMARY);
-		clpbrd = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
-		uri = gtk_clipboard_wait_for_text(clpbrd);
-		if(uri)
-			gtk_clipboard_set_text(prisel, uri, -1);
-	}
+	if(uri)
+		gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_PRIMARY),
+				uri, -1);
 }
 
 static void
@@ -1111,11 +1036,8 @@ stop(Client *c, const Arg *arg) {
 
 static void
 titlechange(WebKitWebView *view, GParamSpec *pspec, Client *c) {
-	const gchar *t = webkit_web_view_get_title(view);
-	if (t) {
-		c->title = copystr(&c->title, t);
-		updatetitle(c);
-	}
+	c->title = webkit_web_view_get_title(view);
+	updatetitle(c);
 }
 
 static void
@@ -1196,25 +1118,25 @@ togglescrollbars(Client *c, const Arg *arg) {
 	}
 }
 
-/* TODO polish (what about other styles? */
 static void
 togglestyle(Client *c, const Arg *arg) {
 	WebKitUserContentManager *usercontent;
+	WebKitUserStyleSheet *style;
 	char *source;
-	GError *error;
 
 	usercontent = webkit_web_view_get_user_content_manager(c->view);
 	if(c->userstyle) {
 		webkit_user_content_manager_remove_all_style_sheets(usercontent);
 		c->userstyle = false;
 	} else {
-		if(g_file_get_contents(stylefile, &source, NULL, &error)) {
-		webkit_user_content_manager_add_style_sheet(usercontent,
-			webkit_user_style_sheet_new(
-				source, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
-				WEBKIT_USER_STYLE_LEVEL_USER,
-				NULL, NULL)
-			);
+		if(g_file_get_contents(stylefile, &source, NULL, NULL)) {
+			style = webkit_user_style_sheet_new(
+					source, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+					WEBKIT_USER_STYLE_LEVEL_USER,
+					NULL, NULL);
+			webkit_user_content_manager_add_style_sheet(usercontent, style);
+			g_free(source);
+			webkit_user_style_sheet_unref(style);
 		}
 		c->userstyle = true;
 	}
