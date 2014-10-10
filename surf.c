@@ -70,9 +70,6 @@ static char pagestat[3];
 static int policysel = 0;
 
 static void addaccelgroup(Client *c);
-static void beforerequest(WebKitWebView *w,
-		WebKitWebResource *r, WebKitURIRequest *req,
-		gpointer d);
 static char *buildpath(const char *path);
 static void cleanup(void);
 static void clipboard(Client *c, const Arg *arg);
@@ -89,6 +86,7 @@ static void destroyclient(Client *c);
 static void destroywin(GtkWidget* w, Client *c);
 static void die(const char *errstr, ...);
 static void eval(Client *c, const Arg *arg);
+static void faviconchange(WebKitWebView *view, GParamSpec *pspec, Client *c);
 static void find(Client *c, const Arg *arg);
 static void fullscreen(Client *c, const Arg *arg);
 static const char *getatom(Client *c, int a);
@@ -155,16 +153,6 @@ addaccelgroup(Client *c) {
 				0, closure);
 	}
 	gtk_window_add_accel_group(GTK_WINDOW(c->win), group);
-}
-
-static void
-beforerequest(WebKitWebView *w, WebKitWebResource *r,
-		WebKitURIRequest *req,
-		gpointer d) {
-	const gchar *uri = webkit_uri_request_get_uri(req);
-
-	if(g_str_has_suffix(uri, "/favicon.ico"))
-		webkit_uri_request_set_uri(req, "about:blank");
 }
 
 static char *
@@ -639,6 +627,9 @@ newclient(void) {
 			"notify::title", /* good */
 			G_CALLBACK(titlechange), c);
 	g_signal_connect(G_OBJECT(c->view),
+			"notify::favicon", /* good */
+			G_CALLBACK(faviconchange), c);
+	g_signal_connect(G_OBJECT(c->view),
 			"mouse-target-changed", /* new */
 			G_CALLBACK(mousetargetchange), c);
 	g_signal_connect(G_OBJECT(c->view),
@@ -659,9 +650,6 @@ newclient(void) {
 	g_signal_connect(G_OBJECT(c->view),
 			"context-menu", /* new */
 			G_CALLBACK(contextmenu), c);
-	g_signal_connect(G_OBJECT(c->view),
-			"resource-load-started", /* new */
-			G_CALLBACK(beforerequest), c);
 
 	/* Scrolled Window */
 	c->scroll = gtk_scrolled_window_new(NULL, NULL);
@@ -1002,6 +990,10 @@ setup(void) {
 	/* ssl policy */
 	webkit_web_context_set_tls_errors_policy (c,
 			strictssl ? WEBKIT_TLS_ERRORS_POLICY_FAIL : WEBKIT_TLS_ERRORS_POLICY_IGNORE);
+
+	/* enable favicons */
+	if (enablefavicons)
+		webkit_web_context_set_favicon_database_directory(c, NULL);
 }
 
 static void
@@ -1033,6 +1025,27 @@ eval(Client *c, const Arg *arg) {
 static void
 stop(Client *c, const Arg *arg) {
 	webkit_web_view_stop_loading(c->view);
+}
+
+static void
+faviconchange(WebKitWebView *view, GParamSpec *pspec, Client *c) {
+	cairo_surface_t *favicon = webkit_web_view_get_favicon(view);
+	GdkPixbuf *pixbuf;
+  	int width;
+  	int height;
+
+  	if(!favicon) {
+		gtk_window_set_icon(GTK_WINDOW(c->win), NULL);
+		return;
+  	}
+
+	width = cairo_image_surface_get_width(favicon);
+	height = cairo_image_surface_get_height(favicon);
+	pixbuf = gdk_pixbuf_get_from_surface(favicon, 0, 0, width, height);
+	
+	printf("%s\n", "favicon changed");
+	gtk_window_set_icon(GTK_WINDOW(c->win), pixbuf);
+	g_object_unref(pixbuf);
 }
 
 static void
