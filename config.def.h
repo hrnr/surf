@@ -20,6 +20,7 @@ static char *cookiepolicies = "Aa@"; /* A: accept all; a: accept nothing,
 static Bool strictssl      = FALSE; /* Refuse untrusted SSL connections */
 
 /* Webkit default features */
+static Bool enablefavicons = TRUE;
 static Bool enablescrollbars = TRUE;
 static Bool enablespatialbrowsing = TRUE;
 static Bool enableplugins = TRUE;
