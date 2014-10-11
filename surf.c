@@ -1026,19 +1026,17 @@ static void
 faviconchange(WebKitWebView *view, GParamSpec *pspec, Client *c) {
 	cairo_surface_t *favicon = webkit_web_view_get_favicon(view);
 	GdkPixbuf *pixbuf;
-  	int width;
-  	int height;
+	int width;
+	int height;
 
-  	if(!favicon) {
-		gtk_window_set_icon(GTK_WINDOW(c->win), NULL);
-		return;
-  	}
-
-	width = cairo_image_surface_get_width(favicon);
-	height = cairo_image_surface_get_height(favicon);
-	pixbuf = gdk_pixbuf_get_from_surface(favicon, 0, 0, width, height);
-	
-	printf("%s\n", "favicon changed");
+	if(!favicon) {
+		pixbuf = gtk_icon_theme_load_icon(gtk_icon_theme_get_default (),
+				"web-browser-symbolic", 16, GTK_ICON_LOOKUP_GENERIC_FALLBACK, NULL);
+	} else {
+		width = cairo_image_surface_get_width(favicon);
+		height = cairo_image_surface_get_height(favicon);
+		pixbuf = gdk_pixbuf_get_from_surface(favicon, 0, 0, width, height);
+	}
 	gtk_window_set_icon(GTK_WINDOW(c->win), pixbuf);
 	g_object_unref(pixbuf);
 }
