@@ -193,6 +193,7 @@ cleanup(void) {
 	while(clients)
 		destroyclient(clients);
 	g_free(cookiefile);
+	g_free(historyfile);
 	g_free(scriptfile);
 	g_free(stylefile);
 }
@@ -500,6 +501,12 @@ loadstatuschange(WebKitWebView *v, WebKitLoadEvent e, Client *c) {
 			c->sslfailed = errors ? TRUE : FALSE;
 		}
 		setatom(c, AtomUri, uri);
+
+		/* write to history */
+		FILE *f;
+		f = fopen(historyfile, "a+");
+		fprintf(f, "h: %s\n", uri);
+		fclose(f);
 		break;
 	case WEBKIT_LOAD_FINISHED:
 		c->progress = 100;
@@ -964,6 +971,7 @@ setup(void) {
 
 	/* dirs and files */
 	cookiefile = buildpath(cookiefile);
+	historyfile = buildpath(historyfile);
 	scriptfile = buildpath(scriptfile);
 	stylefile = buildpath(stylefile);
 
