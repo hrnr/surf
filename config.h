@@ -89,7 +89,7 @@ static Key keys[] = {
     { MODKEY|GDK_SHIFT_MASK,GDK_KEY_a,      togglecookiepolicy, { 0 } },
     { MODKEY|GDK_SHIFT_MASK,GDK_KEY_m,      togglestyle, { 0 } },
     { MODKEY|GDK_SHIFT_MASK,GDK_KEY_b,      togglescrollbars, { 0 } },
-    // { MODKEY|GDK_SHIFT_MASK,GDK_KEY_g,      togglegeolocation, { 0 } },
+    { MODKEY|GDK_SHIFT_MASK,GDK_KEY_l,      togglegeolocation, { 0 } },
 
     // my shotcuts
     { MODKEY, GDK_KEY_b, spawn, SETPROP("_SURF_BMARK") },
