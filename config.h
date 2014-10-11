@@ -8,7 +8,7 @@ static char *historyfile    = "~/.surf/history.txt";
 
 static Bool kioskmode       = FALSE; /* Ignore shortcuts */
 static Bool showindicators  = TRUE;  /* Show indicators in window title */
-static Bool zoomto96dpi     = TRUE;  /* Zoom pages to always emulate 96dpi */
+static Bool zoomto96dpi     = FALSE;  /* Zoom pages to always emulate 96dpi */
 static Bool runinfullscreen = FALSE; /* Run in fullscreen mode by default */
 
 static guint defaultfontsize = 12;   /* Default font size */
@@ -16,34 +16,25 @@ static gfloat zoomlevel = 1.0;       /* Default zoom level */
 
 /* Soup default features */
 static char *cookiefile     = "~/.surf/cookies.txt";
-static char *cookiepolicies = "Aa@"; /* A: accept all; a: accept nothing,
+static char *cookiepolicies = "@Aa"; /* A: accept all; a: accept nothing,
                                         @: accept no third party */
-static Bool *strictssl      = FALSE; /* Refuse untrusted SSL connections */
+static Bool strictssl      = TRUE; /* Refuse untrusted SSL connections */
 
 /* Webkit default features */
 static Bool enablefavicons = TRUE;
 static Bool enablescrollbars = TRUE;
-static Bool enablespatialbrowsing = TRUE;
-static Bool enableplugins = TRUE;
+static Bool enablespatialbrowsing = FALSE;
+static Bool enableplugins = FALSE;
 static Bool enablescripts = TRUE;
 static Bool enableinspector = TRUE;
 static Bool loadimages = TRUE;
-static Bool allowgeolocation = TRUE;
+static Bool allowgeolocation = FALSE;
 
-#define SETPROP(p, q) { \
-	.v = (char *[]){ "/bin/sh", "-c", \
-		"prop=\"`xprop -id $2 $0 | cut -d '\"' -f 2 | xargs -0 printf %b | dmenu`\" &&" \
-		"xprop -id $2 -f $1 8s -set $1 \"$prop\"", \
-		p, q, winid, NULL \
-	} \
-}
+#define SETPROP(p) { .v = (char *[]){ "/bin/sh", "-c", "surf.sh $0 $1 $2", p, winid, NULL } }
 
 /* DOWNLOAD(URI, referer) */
 #define DOWNLOAD(d, r) { \
-	.v = (char *[]){ "/bin/sh", "-c", \
-		"st -e /bin/sh -c \"curl -L -J -O --user-agent '$1'" \
-		" --referer '$2' -b $3 -c $3 '$0';" \
-		" sleep 5;\"", \
+	.v = (char *[]){ "/bin/sh", "-c", "download.sh \"$0\" \"$1\" \"$2\" \"$3\" \"$4\"", \
 		d, useragent, r, cookiefile, NULL \
 	} \
 }
@@ -84,9 +75,9 @@ static Key keys[] = {
     { 0,                    GDK_KEY_Escape, stop,       { 0 } },
     { MODKEY|GDK_SHIFT_MASK,GDK_KEY_o,      inspector,  { 0 } },
 
-    { MODKEY,               GDK_KEY_g,      spawn,      SETPROP("_SURF_URI", "_SURF_GO") },
-    { MODKEY,               GDK_KEY_f,      spawn,      SETPROP("_SURF_FIND", "_SURF_FIND") },
-    { MODKEY,               GDK_KEY_slash,  spawn,      SETPROP("_SURF_FIND", "_SURF_FIND") },
+    { MODKEY,               GDK_KEY_g,      spawn,      SETPROP("_SURF_URI") },
+    { MODKEY,               GDK_KEY_f,      spawn,      SETPROP("_SURF_FIND") },
+    { MODKEY,               GDK_KEY_slash,  spawn,      SETPROP("_SURF_FIND") },
 
     { MODKEY,               GDK_KEY_n,      find,       { .b = TRUE } },
     { MODKEY|GDK_SHIFT_MASK,GDK_KEY_n,      find,       { .b = FALSE } },
@@ -98,6 +89,13 @@ static Key keys[] = {
     { MODKEY|GDK_SHIFT_MASK,GDK_KEY_a,      togglecookiepolicy, { 0 } },
     { MODKEY|GDK_SHIFT_MASK,GDK_KEY_m,      togglestyle, { 0 } },
     { MODKEY|GDK_SHIFT_MASK,GDK_KEY_b,      togglescrollbars, { 0 } },
-    { MODKEY|GDK_SHIFT_MASK,GDK_KEY_g,      togglegeolocation, { 0 } },
+    // { MODKEY|GDK_SHIFT_MASK,GDK_KEY_g,      togglegeolocation, { 0 } },
+
+    // my shotcuts
+    { MODKEY, GDK_KEY_b, spawn, SETPROP("_SURF_BMARK") },
+    { MODKEY|GDK_SHIFT_MASK, GDK_KEY_d, spawn, SETPROP("_SURF_INFO") },
+    { MODKEY|GDK_SHIFT_MASK, GDK_KEY_g, spawn, SETPROP("_SURF_URI_RAW") },
+    { 0,               GDK_KEY_Forward,   navigate,   { .i = +1 } },
+    { 0,               GDK_KEY_Back,      navigate,   { .i = -1 } },
 };
 
