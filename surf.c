@@ -558,7 +558,9 @@ navigate(Client *c, const Arg *arg) {
 	WebKitBackForwardList *l = webkit_web_view_get_back_forward_list(c->view);
 	int steps = *(int *)arg;
 	WebKitBackForwardListItem *i = webkit_back_forward_list_get_nth_item(l, steps);
-	webkit_web_view_go_to_back_forward_list_item(c->view, i);
+
+	if(WEBKIT_IS_BACK_FORWARD_LIST_ITEM(i))
+		webkit_web_view_go_to_back_forward_list_item(c->view, i);
 }
 
 static Client *
