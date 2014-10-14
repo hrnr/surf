@@ -45,7 +45,8 @@ typedef struct Client {
 	GtkWidget *win, *scroll, *vbox, *pane;
 	WebKitWebView *view;
 	WebKitWebInspector *inspector;
-	const char *title, *needle, *linkhover;
+	char *title;
+	const char *needle, *linkhover;
 	gint progress;
 	struct Client *next;
 	gboolean zoomed, fullscreen, isinspecting, sslfailed, userstyle;
@@ -78,6 +79,7 @@ static void cleanup(void);
 static void clipboard(Client *c, const Arg *arg);
 static WebKitCookieAcceptPolicy cookiepolicy_get(void);
 static char cookiepolicy_set(const WebKitCookieAcceptPolicy p);
+static char *copystr(char **str, const char *src);
 static WebKitWebView *createwindow(WebKitWebView *v, WebKitNavigationAction *a,
 		Client *c);
 static gboolean decidepolicy (WebKitWebView *v, WebKitPolicyDecision *d,
@@ -265,6 +267,18 @@ clipboard(Client *c, const Arg *arg) {
 				gtk_clipboard_get(GDK_SELECTION_PRIMARY),
 				c->linkhover ? c->linkhover : geturi(c), -1);
 	}
+}
+
+static char *
+copystr(char **str, const char *src) {
+	char *tmp;
+	tmp = g_strdup(src);
+
+	if(str && *str) {
+		g_free(*str);
+		*str = tmp;
+	}
+	return tmp;
 }
 
 static WebKitWebView *
@@ -501,11 +515,6 @@ loadstatuschange(WebKitWebView *v, WebKitLoadEvent e, Client *c) {
 	char *uri;
 
 	switch(e) {
-	case WEBKIT_LOAD_STARTED:
-		c->progress = 0;
-		c->title = geturi(c);
-		updatetitle(c);
-		break;
 	case WEBKIT_LOAD_COMMITTED:
 		uri = geturi(c);
 		if(webkit_web_view_get_tls_info(v, NULL, &errors)) {
@@ -549,6 +558,9 @@ loaduri(Client *c, const Arg *arg) {
 		reload(c, &a);
 	} else {
 		webkit_web_view_load_uri(c->view, u);
+		c->progress = 0;
+		c->title = copystr(&c->title, u);
+		updatetitle(c);
 	}
 	g_free(u);
 }
@@ -1029,8 +1041,11 @@ stop(Client *c, const Arg *arg) {
 
 static void
 titlechange(WebKitWebView *view, GParamSpec *pspec, Client *c) {
-	c->title = webkit_web_view_get_title(view);
-	updatetitle(c);
+	const char *t = webkit_web_view_get_title(view);
+	if (t) {
+		c->title = copystr(&c->title, t);
+		updatetitle(c);
+	}
 }
 
 static void
