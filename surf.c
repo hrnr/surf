@@ -698,8 +698,6 @@ newclient(void) {
 			enablespatialbrowsing, NULL); /* good */
 	g_object_set(G_OBJECT(settings), "enable-developer-extras",
 			enableinspector, NULL); /* good */
-	// g_object_set(G_OBJECT(settings), "enable-default-context-menu",
-			// kioskmode ^ 1, NULL); TODO
 	g_object_set(G_OBJECT(settings), "default-font-size",
 			defaultfontsize, NULL); /* good */
 	g_object_set(G_OBJECT(settings), "enable-resizable-text-areas",
@@ -819,6 +817,9 @@ static gboolean
 contextmenu(WebKitWebView *v, WebKitContextMenu *menu,
 		GdkEvent *e, WebKitHitTestResult *r, Client *c) {
 	GList *items = webkit_context_menu_get_items(menu);
+
+	if(kioskmode)
+		return TRUE;
 
 	for(GList *l = items; l; l = l->next) {
 		if (!webkit_context_menu_item_is_separator(l->data))
