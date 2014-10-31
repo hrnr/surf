@@ -3,9 +3,9 @@ surf - simple webkit-based browser
 surf is a simple Web browser based on WebKit/GTK+.
 
 This is my port of surf to webkit2gtk-4.0. This branch aims minimal diff with
-upstream. I provide my surf configuration in branch `webkit2-myconfig`, which
-basically features history and favicon support + few more features enabled in
-webkit.
+upstream (both in code and features). I provide my surf configuration in branch
+`webkit2-myconfig`, which basically features history and favicon support + few
+more features enabled in webkit.
 
 Requirements
 ------------
