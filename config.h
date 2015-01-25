@@ -30,11 +30,11 @@ static Bool enableinspector = TRUE;
 static Bool loadimages = TRUE;
 static Bool allowgeolocation = FALSE;
 
-#define SETPROP(p) { .v = (char *[]){ "/bin/sh", "-c", "surf.sh $0 $1 $2", p, winid, NULL } }
+#define SETPROP(p) { .v = (char *[]){ "/bin/sh", "-c", "~/.surf/surf.sh $0 $1 $2", p, winid, NULL } }
 
 /* DOWNLOAD(URI, referer) */
 #define DOWNLOAD(d, r) { \
-	.v = (char *[]){ "/bin/sh", "-c", "download.sh \"$0\" \"$1\" \"$2\" \"$3\" \"$4\"", \
+	.v = (char *[]){ "/bin/sh", "-c", "~/.surf/download.sh \"$0\" \"$1\" \"$2\" \"$3\" \"$4\"", \
 		d, useragent, r, cookiefile, NULL \
 	} \
 }
