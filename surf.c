@@ -772,6 +772,14 @@ newclient(void) {
 	setatom(c, AtomFind, "");
 	setatom(c, AtomUri, "about:blank");
 
+	/* optional startup action
+		todo: config in config.h */
+	if(openbar) {
+		updatewinid(c);
+		Arg v = SETPROP("_SURF_URI");
+		spawn(c, &v);
+	}
+
 	c->next = clients;
 	clients = c;
 
@@ -783,11 +791,6 @@ newclient(void) {
 				if (fclose(stdout) != 0) {
 			die("Error closing stdout");
 				}
-	}
-
-	if(openbar) {
-		Arg v = SETPROP("_SURF_URI");
-		spawn(c, &v);
 	}
 
 	return c;
