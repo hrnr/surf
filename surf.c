@@ -790,6 +790,11 @@ newclient(void) {
 				}
 	}
 
+	if(openbar) {
+		Arg v = SETPROP("_SURF_URI");
+		spawn(c, &v);
+	}
+
 	return c;
 }
 
@@ -1263,7 +1268,7 @@ updatewinid(Client *c) {
 
 static void
 usage(void) {
-	die("usage: %s [-bBfFgGiIkKnNpPsSvx]"
+	die("usage: %s [-bBfFgGiIkKnNopPsSvx]"
 		" [-a cookiepolicies ] "
 		" [-c cookiefile] [-e xid] [-r scriptfile]"
 		" [-t stylefile] [-u useragent] [-z zoomlevel]"
@@ -1341,6 +1346,9 @@ main(int argc, char *argv[]) {
 		break;
 	case 'N':
 		enableinspector = 1;
+		break;
+	case 'o':
+		openbar = 1;
 		break;
 	case 'p':
 		enableplugins = 0;

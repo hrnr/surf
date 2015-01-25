@@ -10,6 +10,7 @@ static Bool kioskmode       = FALSE; /* Ignore shortcuts */
 static Bool showindicators  = TRUE;  /* Show indicators in window title */
 static Bool zoomto96dpi     = FALSE;  /* Zoom pages to always emulate 96dpi */
 static Bool runinfullscreen = FALSE; /* Run in fullscreen mode by default */
+static Bool openbar         = FALSE; /* Open address bar upon launch */
 
 static guint defaultfontsize = 16;   /* Default font size */
 static gfloat zoomlevel = 1.0;       /* Default zoom level */
