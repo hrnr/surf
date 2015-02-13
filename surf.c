@@ -1009,7 +1009,7 @@ setup(void) {
 	/* cookies */
 	cm = webkit_web_context_get_cookie_manager(c);
 	webkit_cookie_manager_set_persistent_storage(cm,
-			cookiefile, WEBKIT_COOKIE_PERSISTENT_STORAGE_TEXT);
+			cookiefile, WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE);
 	webkit_cookie_manager_set_accept_policy(cm, cookiepolicy_get());
 
 	/* ssl policy */
