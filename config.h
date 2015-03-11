@@ -16,7 +16,7 @@ static gfloat zoomlevel = 1.0;       /* Default zoom level */
 
 /* Soup default features */
 static char *cookiefile     = "~/.surf/cookies.sqlite";
-static char *cookiepolicies = "A@a"; /* A: accept all; a: accept nothing,
+static char *cookiepolicies = "@Aa"; /* A: accept all; a: accept nothing,
                                         @: accept no third party */
 static Bool strictssl      = TRUE; /* Refuse untrusted SSL connections */
 
