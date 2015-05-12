@@ -1008,16 +1008,13 @@ setup(void) {
 	/* request handler */
 	c = webkit_web_context_get_default();
 
-	/* use browser process model */
-	webkit_web_context_set_process_model(c, WEBKIT_PROCESS_MODEL_MULTIPLE_SECONDARY_PROCESSES);
-
 	/* caching */
 	webkit_web_context_set_cache_model(c, WEBKIT_CACHE_MODEL_WEB_BROWSER);
 
 	/* cookies */
 	cm = webkit_web_context_get_cookie_manager(c);
 	webkit_cookie_manager_set_persistent_storage(cm,
-			cookiefile, WEBKIT_COOKIE_PERSISTENT_STORAGE_TEXT);
+			cookiefile, WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE);
 	webkit_cookie_manager_set_accept_policy(cm, cookiepolicy_get());
 
 	/* ssl policy */
