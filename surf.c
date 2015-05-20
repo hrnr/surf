@@ -780,6 +780,7 @@ newclient(void) {
 	/* optional startup action
 		todo: config in config.h */
 	if(openbar) {
+		openbar = FALSE;
 		updatewinid(c);
 		Arg v = SETPROP("_SURF_URI");
 		spawn(c, &v);
