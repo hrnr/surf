@@ -9,6 +9,7 @@ static Bool kioskmode       = FALSE; /* Ignore shortcuts */
 static Bool showindicators  = TRUE;  /* Show indicators in window title */
 static Bool zoomto96dpi     = TRUE;  /* Zoom pages to always emulate 96dpi */
 static Bool runinfullscreen = FALSE; /* Run in fullscreen mode by default */
+static Bool startupaction   = FALSE; /* Runs specified action upon launch */
 
 static guint defaultfontsize = 16;   /* Default font size */
 static gfloat zoomlevel = 1.0;       /* Default zoom level */
@@ -45,6 +46,9 @@ static Bool allowgeolocation = TRUE;
 		d, useragent, r, cookiefile, NULL \
 	} \
 }
+
+/* startup action */
+#define STARTUP() SETPROP("_SURF_URI", "_SURF_GO")
 
 #define MODKEY GDK_CONTROL_MASK
 

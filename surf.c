@@ -772,11 +772,11 @@ newclient(void) {
 	setatom(c, AtomFind, "");
 	setatom(c, AtomUri, "about:blank");
 
-	/* optional startup action
-		todo: config in config.h */
-	if(openbar) {
+	/* optional startup action */
+	if(startupaction) {
+		startupaction = 0;
 		updatewinid(c);
-		Arg v = SETPROP("_SURF_URI");
+		Arg v = STARTUP();
 		spawn(c, &v);
 	}
 
@@ -1319,7 +1319,7 @@ main(int argc, char *argv[]) {
 		enableinspector = 1;
 		break;
 	case 'o':
-		openbar = 1;
+		startupaction = 1;
 		break;
 	case 'p':
 		enableplugins = 0;
