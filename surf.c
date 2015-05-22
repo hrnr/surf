@@ -777,6 +777,14 @@ newclient(void) {
 	setatom(c, AtomFind, "");
 	setatom(c, AtomUri, "about:blank");
 
+	/* optional startup action */
+	if(startupaction) {
+		startupaction = 0;
+		updatewinid(c);
+		Arg v = STARTUP();
+		spawn(c, &v);
+	}
+
 	c->next = clients;
 	clients = c;
 
@@ -1260,7 +1268,7 @@ updatewinid(Client *c) {
 
 static void
 usage(void) {
-	die("usage: %s [-bBfFgGiIkKnNpPsSvx]"
+	die("usage: %s [-bBfFgGiIkKnNopPsSvx]"
 		" [-a cookiepolicies ] "
 		" [-c cookiefile] [-e xid] [-r scriptfile]"
 		" [-t stylefile] [-u useragent] [-z zoomlevel]"
@@ -1338,6 +1346,9 @@ main(int argc, char *argv[]) {
 		break;
 	case 'N':
 		enableinspector = 1;
+		break;
+	case 'o':
+		startupaction = 1;
 		break;
 	case 'p':
 		enableplugins = 0;
