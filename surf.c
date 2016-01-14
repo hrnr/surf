@@ -1008,6 +1008,10 @@ setup(void) {
 	/* request handler */
 	c = webkit_web_context_get_default();
 
+	/* process model */
+	webkit_web_context_set_process_model(c, WEBKIT_PROCESS_MODEL_MULTIPLE_SECONDARY_PROCESSES);
+	webkit_web_context_set_web_process_count_limit(c, 1);
+
 	/* caching */
 	webkit_web_context_set_cache_model(c, WEBKIT_CACHE_MODEL_WEB_BROWSER);
 
